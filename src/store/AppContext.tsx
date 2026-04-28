@@ -1,52 +1,48 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { OwnerProfile, Lead, ActivityLog, MarketingCampaign, SocialPost, ROIReport, AuditResult, ICP, Competitor } from '../types';
-import { auth, db, doc, collection, setDoc, getDoc, getDocs, query, deleteDoc, updateDoc, onAuthStateChanged, User, signInWithPopup, googleProvider, signOut, getDocFromServer } from '../lib/firebase';
 
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
+// LocalStorage keys
+const STORAGE_KEYS = {
+  PROFILE: 'ai-marketer-profile',
+  ICP: 'ai-marketer-icp',
+  AUDIT: 'ai-marketer-audit',
+  LEADS: 'ai-marketer-leads',
+  COMPETITORS: 'ai-marketer-competitors',
+  CAMPAIGNS: 'ai-marketer-campaigns',
+  SOCIAL_POSTS: 'ai-marketer-posts',
+  ROI_HISTORY: 'ai-marketer-roi',
+  LOGS: 'ai-marketer-logs'
+};
 
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
+// Helper to load from localStorage
+const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : defaultValue;
+  } catch {
+    return defaultValue;
   }
-}
+};
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-    },
-    operationType,
-    path
+// Helper to save to localStorage
+const saveToStorage = <T,>(key: string, value: T): void => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.error('Error saving to localStorage:', error);
   }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
+};
+
+const generateId = (): string => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
 interface AppState {
-  user: User | null;
+  // Auth simulation - always "logged in" locally
+  user: { uid: string; email: string } | null;
   loading: boolean;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
+  
+  // Data
   profile: OwnerProfile | null;
   setProfile: (p: OwnerProfile) => void;
   audit: AuditResult | null;
@@ -78,7 +74,10 @@ interface AppState {
 const AppContext = createContext<AppState | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<{ uid: string; email: string } | null>({ 
+    uid: 'local-user', 
+    email: 'local@example.com' 
+  });
   const [loading, setLoading] = useState(true);
   const [profile, setProfileState] = useState<OwnerProfile | null>(null);
   const [competitors, setCompetitorsState] = useState<Competitor[]>([]);
@@ -90,230 +89,178 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [roiHistory, setRoiHistory] = useState<ROIReport[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
 
+  // Load all data from localStorage on mount
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        // Test connection first
-        try {
-          await getDocFromServer(doc(db, 'users', u.uid, 'owner', 'data'));
-        } catch (e) {
-          console.warn("Initial connection check failed, retrying data load...");
-        }
-        loadUserData(u.uid);
-      } else {
-        // Reset state
-        setProfileState(null);
-        setCompetitorsState([]);
-        setAudit(null);
-        setIcpState(null);
-        setLeads([]);
-        setCampaigns([]);
-        setSocialPosts([]);
-        setRoiHistory([]);
-        setLogs([]);
-      }
+    const loadAllData = () => {
+      setProfileState(loadFromStorage<OwnerProfile | null>(STORAGE_KEYS.PROFILE, null));
+      setIcpState(loadFromStorage<ICP | null>(STORAGE_KEYS.ICP, null));
+      setAudit(loadFromStorage<AuditResult | null>(STORAGE_KEYS.AUDIT, null));
+      setLeads(loadFromStorage<Lead[]>(STORAGE_KEYS.LEADS, []));
+      setCompetitorsState(loadFromStorage<Competitor[]>(STORAGE_KEYS.COMPETITORS, []));
+      setSocialPosts(loadFromStorage<SocialPost[]>(STORAGE_KEYS.SOCIAL_POSTS, []));
+      setRoiHistory(loadFromStorage<ROIReport[]>(STORAGE_KEYS.ROI_HISTORY, []));
+      setLogs(loadFromStorage<ActivityLog[]>(STORAGE_KEYS.LOGS, []));
+      setCampaigns(loadFromStorage<MarketingCampaign[]>(STORAGE_KEYS.CAMPAIGNS, []));
       setLoading(false);
-    });
-    return unsubscribe;
+    };
+
+    // Simulate slight delay for smooth initialization
+    setTimeout(loadAllData, 500);
   }, []);
 
-  const loadUserData = async (uid: string) => {
-    try {
-      // Profile
-      const profileSnap = await getDoc(doc(db, 'users', uid, 'owner', 'data'));
-      if (profileSnap.exists()) setProfileState(profileSnap.data() as OwnerProfile);
-
-      // ICP
-      const icpSnap = await getDoc(doc(db, 'users', uid, 'icp', 'data'));
-      if (icpSnap.exists()) setIcpState(icpSnap.data() as ICP);
-
-      // Audit
-      const auditSnap = await getDoc(doc(db, 'users', uid, 'audit', 'data'));
-      if (auditSnap.exists()) setAudit(auditSnap.data() as AuditResult);
-
-      // Collections
-      const leadsSnap = await getDocs(collection(db, 'users', uid, 'leads'));
-      setLeads(leadsSnap.docs.map(d => d.data() as Lead));
-
-      const competitorsSnap = await getDocs(collection(db, 'users', uid, 'competitors'));
-      setCompetitorsState(competitorsSnap.docs.map(d => d.data() as Competitor));
-
-      const postsSnap = await getDocs(collection(db, 'users', uid, 'posts'));
-      setSocialPosts(postsSnap.docs.map(d => d.data() as SocialPost));
-
-      const roiSnap = await getDocs(collection(db, 'users', uid, 'roi'));
-      setRoiHistory(roiSnap.docs.map(d => d.data() as ROIReport));
-
-      const logSnap = await getDocs(collection(db, 'users', uid, 'logs'));
-      setLogs(logSnap.docs.map(d => d.data() as ActivityLog));
-
-      const campaignSnap = await getDocs(collection(db, 'users', uid, 'marketing_content'));
-      setCampaigns(campaignSnap.docs.map(d => d.data() as MarketingCampaign));
-
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+  // Persist data changes to localStorage
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.PROFILE, profile);
     }
+  }, [profile, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.ICP, icp);
+    }
+  }, [icp, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.AUDIT, audit);
+    }
+  }, [audit, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.LEADS, leads);
+    }
+  }, [leads, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.COMPETITORS, competitors);
+    }
+  }, [competitors, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.CAMPAIGNS, campaigns);
+    }
+  }, [campaigns, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.SOCIAL_POSTS, socialPosts);
+    }
+  }, [socialPosts, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.ROI_HISTORY, roiHistory);
+    }
+  }, [roiHistory, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      saveToStorage(STORAGE_KEYS.LOGS, logs);
+    }
+  }, [logs, loading]);
+
+  const loginWithGoogle = async (): Promise<void> => {
+    // No-op: already "logged in"
+    setUser({ uid: 'local-user', email: 'local@example.com' });
   };
 
-  const loginWithGoogle = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Login error:", error);
-    }
+  const logout = async (): Promise<void> => {
+    setUser(null);
   };
 
-  const logout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-  };
-
-  const addLog = async (module: string, action: string, details?: string) => {
+  const addLog = (module: string, action: string, details?: string) => {
     const newLog: ActivityLog = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: generateId(),
       timestamp: new Date().toISOString(),
       module,
       action,
       details
     };
     setLogs(prev => [newLog, ...prev]);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'logs', newLog.id), newLog);
-    }
   };
 
-  const setProfile = async (p: OwnerProfile) => {
+  const setProfile = (p: OwnerProfile) => {
     setProfileState(p);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'owner', 'data'), p);
-      addLog('Profile', 'Updated profile information');
-    }
+    addLog('Profile', 'Updated profile information');
   };
 
-  const setIcp = async (i: ICP) => {
+  const setIcp = (i: ICP) => {
     setIcpState(i);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'icp', 'data'), i);
-      addLog('ICP', 'Defined ideal customer profile');
-    }
+    addLog('ICP', 'Defined ideal customer profile');
   };
 
-  const handleSetAudit = async (a: AuditResult) => {
+  const handleSetAudit = (a: AuditResult) => {
     setAudit(a);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'audit', 'data'), a);
-      addLog('Analysis', 'Conducted marketing audit');
-    }
+    addLog('Analysis', 'Conducted marketing audit');
   };
 
-  const addLead = async (l: Lead) => {
+  const addLead = (l: Lead) => {
     setLeads(prev => [l, ...prev]);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'leads', l.id), l);
-      addLog('Leads', 'lead-added', `ID: ${l.id} - ${l.companyName}`);
-    }
+    addLog('Leads', 'lead-added', `ID: ${l.id} - ${l.companyName}`);
   };
 
-  const updateLead = async (l: Lead) => {
+  const updateLead = (l: Lead) => {
     setLeads(prev => prev.map(old => old.id === l.id ? l : old));
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'leads', l.id), l);
-      addLog('Leads', 'lead-updated', `ID: ${l.id}`);
-    }
+    addLog('Leads', 'lead-updated', `ID: ${l.id}`);
   };
 
-  const deleteLead = async (id: string) => {
+  const deleteLead = (id: string) => {
     setLeads(prev => prev.filter(l => l.id !== id));
-    if (user) {
-      await deleteDoc(doc(db, 'users', user.uid, 'leads', id));
-      addLog('Leads', `Eliminado lead`);
-    }
+    addLog('Leads', `Eliminado lead`);
   };
 
-  const addLeads = async (ls: Lead[]) => {
+  const addLeads = (ls: Lead[]) => {
     setLeads(prev => [...ls, ...prev]);
-    if (user) {
-      for (const l of ls) {
-        await setDoc(doc(db, 'users', user.uid, 'leads', l.id), l);
-      }
-      addLog('Leads', `Añadidos ${ls.length} nuevos leads`);
-    }
+    addLog('Leads', `Añadidos ${ls.length} nuevos leads`);
   };
 
-  const addCompetitor = async (c: Competitor) => {
+  const addCompetitor = (c: Competitor) => {
     setCompetitorsState(prev => [c, ...prev]);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'competitors', c.id), c);
-      addLog('Competencia', 'competitor-added', `${c.name}`);
-    }
+    addLog('Competencia', 'competitor-added', `${c.name}`);
   };
 
-  const updateCompetitor = async (c: Competitor) => {
+  const updateCompetitor = (c: Competitor) => {
     setCompetitorsState(prev => prev.map(comp => comp.id === c.id ? c : comp));
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'competitors', c.id), c);
-      addLog('Competencia', 'competitor-updated', `${c.name}`);
-    }
+    addLog('Competencia', 'competitor-updated', `${c.name}`);
   };
 
-  const deleteCompetitor = async (id: string) => {
+  const deleteCompetitor = (id: string) => {
     setCompetitorsState(prev => prev.filter(c => c.id !== id));
-    if (user) {
-      await deleteDoc(doc(db, 'users', user.uid, 'competitors', id));
-      addLog('Competencia', `Eliminado competidor`);
-    }
+    addLog('Competencia', `Eliminado competidor`);
   };
 
-  const addCampaign = async (c: MarketingCampaign) => {
+  const addCampaign = (c: MarketingCampaign) => {
     setCampaigns(prev => [c, ...prev]);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'marketing_content', c.id), c);
-      addLog('Marketing', 'marketing-generated', `${c.title}`);
-    }
+    addLog('Marketing', 'marketing-generated', `${c.title}`);
   };
 
-  const addSocialPost = async (p: SocialPost) => {
+  const addSocialPost = (p: SocialPost) => {
     setSocialPosts(prev => [p, ...prev]);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'posts', p.id), p);
-      addLog('Social', 'post-scheduled', `${p.platform}`);
-    }
+    addLog('Social', 'post-scheduled', `${p.platform}`);
   };
 
-  const updateSocialPost = async (p: SocialPost) => {
+  const updateSocialPost = (p: SocialPost) => {
     setSocialPosts(prev => prev.map(old => old.id === p.id ? p : old));
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'posts', p.id), p);
-      addLog('Social', 'post-updated', `${p.platform}`);
-    }
+    addLog('Social', 'post-updated', `${p.platform}`);
   };
 
-  const deleteSocialPost = async (id: string) => {
+  const deleteSocialPost = (id: string) => {
     setSocialPosts(prev => prev.filter(p => p.id !== id));
-    if (user) {
-      await deleteDoc(doc(db, 'users', user.uid, 'posts', id));
-      addLog('Social', `Eliminada publicación`);
-    }
+    addLog('Social', `Eliminada publicación`);
   };
 
-  const addROI = async (r: ROIReport) => {
+  const addROI = (r: ROIReport) => {
     setRoiHistory(prev => [r, ...prev]);
-    if (user) {
-      await setDoc(doc(db, 'users', user.uid, 'roi', r.id), r);
-      addLog('ROI', 'roi-calculated');
-    }
+    addLog('ROI', 'roi-calculated');
   };
 
-  const deleteROI = async (id: string) => {
+  const deleteROI = (id: string) => {
     setRoiHistory(prev => prev.filter(r => r.id !== id));
-    if (user) {
-      await deleteDoc(doc(db, 'users', user.uid, 'roi', id));
-      addLog('ROI', `Eliminado ROI`);
-    }
+    addLog('ROI', `Eliminado ROI`);
   };
 
   return (

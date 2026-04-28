@@ -13,12 +13,14 @@ import {
   LayoutDashboard,
   SearchCode,
   Terminal,
-  HelpCircle,
-  LogOut,
-  LogIn
+  HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useAppState } from '../store/AppContext';
+
+interface SidebarProps {
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+}
 
 interface SidebarProps {
   activeTab: string;
@@ -40,8 +42,6 @@ const navItems = [
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { user, loginWithGoogle, logout } = useAppState();
-
   return (
     <div className="w-64 h-screen bg-black/40 backdrop-blur-xl text-slate-400 border-r border-white/10 flex flex-col p-4 fixed left-0 top-0 overflow-y-auto">
       <div className="p-4 flex items-center gap-3 mb-8">
@@ -76,38 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         })}
       </nav>
 
-      <div className="mt-8 pt-4 border-t border-white/5 px-2 space-y-3">
-        {user ? (
-          <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-            <div className="flex items-center gap-2 mb-2">
-              {user.photoURL ? (
-                <img src={user.photoURL} alt="User" className="w-6 h-6 rounded-full border border-white/20" referrerPolicy="no-referrer" />
-              ) : (
-                <UserCircle className="w-6 h-6 text-slate-500" />
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-white font-medium truncate">{user.displayName || user.email}</p>
-                <p className="text-[8px] text-slate-500 truncate">Sesión Activa</p>
-              </div>
-            </div>
-            <button
-              onClick={logout}
-              className="w-full flex items-center justify-center gap-2 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all text-[10px] font-bold uppercase tracking-widest"
-            >
-              <LogOut className="w-3 h-3" />
-              Cerrar Sesión
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={loginWithGoogle}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-cyan-500 text-black font-bold uppercase tracking-widest text-[10px] shadow-[0_0_15px_rgba(6,182,212,0.3)] hover:scale-[1.02] transition-all"
-          >
-            <LogIn className="w-3 h-3" />
-            Acceder con Google
-          </button>
-        )}
-
+      <div className="mt-8 pt-4 border-t border-white/5 px-2">
         <div className="bg-white/5 rounded-xl p-3 border border-white/5">
           <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Estado de Red</p>
           <div className="flex items-center gap-2">
