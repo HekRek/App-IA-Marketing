@@ -1112,36 +1112,76 @@ export const LeadSearch = () => {
   const revenueOptions = ['0-50k', '50k-100k', '100k-500k', '500k-1M', '1M+'];
   const sourceOptions = ['Google Maps', 'Directorio', 'LinkedIn', 'Referido', 'Web Scrapping', 'Otros'];
 
+  // Dynamic Google Maps loader
+  const loadGoogleMapsApi = (): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      // Already loaded
+      if ((window as any).google && (window as any).google.maps && (window as any).google.maps.places) {
+        resolve();
+        return;
+      }
+
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      if (!apiKey || apiKey === 'your_google_maps_api_key_here') {
+        console.warn('Google Maps API key not configured');
+        resolve();
+        return;
+      }
+
+      // Check if script already exists
+      const existingScript = document.querySelector(`script[src*="maps.googleapis.com"]`);
+      if (existingScript) {
+        existingScript.addEventListener('load', () => resolve());
+        existingScript.addEventListener('error', reject);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load Google Maps API'));
+      document.head.appendChild(script);
+    });
+  };
+
   React.useEffect(() => {
-    if (isModalOpen && searchInputRef.current && (window as any).google) {
-      const autocomplete = new (window as any).google.maps.places.Autocomplete(searchInputRef.current, {
-        types: ['establishment'],
-        fields: ['name', 'formatted_address', 'address_components', 'website', 'formatted_phone_number']
-      });
+    if (isModalOpen && searchInputRef.current) {
+      loadGoogleMapsApi().then(() => {
+        if ((window as any).google && (window as any).google.maps && searchInputRef.current) {
+          const autocomplete = new (window as any).google.maps.places.Autocomplete(searchInputRef.current, {
+            types: ['establishment'],
+            fields: ['name', 'formatted_address', 'address_components', 'website', 'formatted_phone_number']
+          });
 
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace();
-        if (!place.name) return;
+          autocomplete.addListener('place_changed', () => {
+            const place = autocomplete.getPlace();
+            if (!place.name) return;
 
-        let city = '';
-        let country = '';
-        if (place.address_components) {
-          for (const component of place.address_components) {
-            if (component.types.includes('locality')) city = component.long_name;
-            if (component.types.includes('country')) country = component.long_name;
-          }
+            let city = '';
+            let country = '';
+            if (place.address_components) {
+              for (const component of place.address_components) {
+                if (component.types.includes('locality')) city = component.long_name;
+                if (component.types.includes('country')) country = component.long_name;
+              }
+            }
+
+            setFormData(prev => ({
+              ...prev,
+              companyName: place.name,
+              city: city || prev.city,
+              country: country || prev.country,
+              website: place.website || prev.website,
+              phone: place.formatted_phone_number || prev.phone,
+              source: 'Google Maps',
+              notes: `Dirección: ${place.formatted_address || ''}.`
+            }));
+          });
         }
-
-        setFormData(prev => ({
-          ...prev,
-          companyName: place.name,
-          city: city || prev.city,
-          country: country || prev.country,
-          website: place.website || prev.website,
-          phone: place.formatted_phone_number || prev.phone,
-          source: 'Google Maps',
-          notes: `Dirección: ${place.formatted_address || ''}.`
-        }));
+      }).catch(err => {
+        console.error('Error loading Google Maps:', err);
       });
     }
   }, [isModalOpen]);
